@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useState } from "react";
 import GlobalContext from "../context/GlobalContext";
 import dayjs from "dayjs";
+import { expandRecurringEvents } from "../util";
 
 export default function DayEvents() {
   const {
@@ -13,11 +14,15 @@ export default function DayEvents() {
 
   useEffect(() => {
     if (daySelected) {
-      const events = filteredEvents.filter((evt) => {
-        const evtStart = dayjs(evt.day);
-        const evtEnd = evt.endDate ? dayjs(evt.endDate) : evtStart;
-        return daySelected.isSame(evtStart, 'day') || daySelected.isSame(evtEnd, 'day') || (daySelected.isAfter(evtStart) && daySelected.isBefore(evtEnd));
-      });
+      // Expand recurring events for the visible month
+      const expanded = expandRecurringEvents(
+        filteredEvents,
+        daySelected.startOf('month').subtract(7, 'day'),
+        daySelected.endOf('month').add(7, 'day')
+      );
+      const events = expanded.filter((evt) =>
+        dayjs(evt.day).isSame(daySelected, 'day')
+      );
       setDayEvents(events);
     } else {
       setDayEvents([]);

@@ -1,6 +1,7 @@
 import React, { useContext, useState } from "react";
 import GlobalContext from "../context/GlobalContext";
 import dayjs from "dayjs";
+import { hasConflict } from "../util";
 
 const labelsClasses = [
   "teal",
@@ -17,6 +18,7 @@ export default function EventModal() {
     daySelected,
     dispatchCalEvent,
     selectedEvent,
+    savedEvents,
   } = useContext(GlobalContext);
 
   const [title, setTitle] = useState(
@@ -25,13 +27,8 @@ export default function EventModal() {
   const [description, setDescription] = useState(
     selectedEvent ? selectedEvent.description : ""
   );
-  const [startDate, setStartDate] = useState(
+  const [day, setDay] = useState(
     selectedEvent ? dayjs(selectedEvent.day) : dayjs(daySelected)
-  );
-  const [endDate, setEndDate] = useState(
-    selectedEvent && selectedEvent.endDate
-      ? dayjs(selectedEvent.endDate)
-      : dayjs(daySelected)
   );
   const [selectedLabel, setSelectedLabel] = useState(
     selectedEvent
@@ -39,22 +36,59 @@ export default function EventModal() {
       : labelsClasses[0]
   );
 
+  // Recurrence state
+  const [recurrenceType, setRecurrenceType] = useState(
+    selectedEvent && selectedEvent.recurrence ? selectedEvent.recurrence.type : 'none'
+  );
+  const [recurrenceDays, setRecurrenceDays] = useState(
+    selectedEvent && selectedEvent.recurrence && selectedEvent.recurrence.daysOfWeek ? selectedEvent.recurrence.daysOfWeek : []
+  );
+  const [recurrenceDayOfMonth, setRecurrenceDayOfMonth] = useState(
+    selectedEvent && selectedEvent.recurrence && selectedEvent.recurrence.dayOfMonth ? selectedEvent.recurrence.dayOfMonth : day.date()
+  );
+  const [recurrenceInterval, setRecurrenceInterval] = useState(
+    selectedEvent && selectedEvent.recurrence && selectedEvent.recurrence.interval ? selectedEvent.recurrence.interval : 1
+  );
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState(
+    selectedEvent && selectedEvent.recurrence && selectedEvent.recurrence.endDate ? dayjs(selectedEvent.recurrence.endDate) : day
+  );
+
+  function handleRecurrenceDayToggle(dayIdx) {
+    setRecurrenceDays(prev =>
+      prev.includes(dayIdx)
+        ? prev.filter(d => d !== dayIdx)
+        : [...prev, dayIdx]
+    );
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     const calendarEvent = {
       title,
       description,
       label: selectedLabel,
-      day: startDate.valueOf(),
-      endDate: endDate.valueOf(),
+      day: day.valueOf(),
       id: selectedEvent ? selectedEvent.id : Date.now(),
+      recurrence: recurrenceType === 'none' ? null : {
+        type: recurrenceType,
+        daysOfWeek: recurrenceType === 'weekly' ? recurrenceDays : undefined,
+        dayOfMonth: recurrenceType === 'monthly' ? recurrenceDayOfMonth : undefined,
+        interval: recurrenceType === 'custom' ? recurrenceInterval : undefined,
+        endDate: recurrenceEndDate.valueOf(),
+      }
     };
+
+    if (hasConflict(calendarEvent, savedEvents)) {
+      if (!window.confirm("This event conflicts with an existing event. Save anyway?")) {
+        return;
+      }
+    }
+
     if (selectedEvent) {
       dispatchCalEvent({ type: "update", payload: calendarEvent });
     } else {
       dispatchCalEvent({ type: "push", payload: calendarEvent });
     }
-
     setShowEventModal(false);
   }
 
@@ -94,20 +128,12 @@ export default function EventModal() {
                 />
             </div>
             <div>
-                <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Date Range</label>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Date</label>
                 <div className="flex items-center gap-3">
                     <input 
                         type="date" 
-                        value={startDate.format('YYYY-MM-DD')}
-                        onChange={e => setStartDate(dayjs(e.target.value))}
-                        className="w-full p-2 border rounded-md bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-teal-500 transition"
-                    />
-                    <span className="text-gray-500 font-bold">-</span>
-                    <input 
-                        type="date" 
-                        value={endDate.format('YYYY-MM-DD')}
-                        onChange={e => setEndDate(dayjs(e.target.value))}
-                        min={startDate.format('YYYY-MM-DD')}
+                        value={day.format('YYYY-MM-DD')}
+                        onChange={e => setDay(dayjs(e.target.value))}
                         className="w-full p-2 border rounded-md bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-teal-500 transition"
                     />
                 </div>
@@ -126,7 +152,7 @@ export default function EventModal() {
             </div>
             <div>
                 <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Label</label>
-                <div className="flex gap-x-3">
+                <div className="flex gap-x-3 mb-2">
                   {labelsClasses.map((lblClass, i) => (
                     <span
                       key={i}
@@ -141,6 +167,72 @@ export default function EventModal() {
                     </span>
                   ))}
                 </div>
+            </div>
+            <div>
+                <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">Recurrence</label>
+                <select
+                  value={recurrenceType}
+                  onChange={e => setRecurrenceType(e.target.value)}
+                  className="w-full p-2 border rounded-md bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-gray-100 mb-2"
+                >
+                  <option value="none">None</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {recurrenceType === 'weekly' && (
+                  <div className="flex gap-2 mb-2">
+                    {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d, idx) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => handleRecurrenceDayToggle(idx)}
+                        className={`px-2 py-1 rounded ${recurrenceDays.includes(idx) ? 'bg-teal-500 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-200'}`}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {recurrenceType === 'monthly' && (
+                  <div className="mb-2">
+                    <label className="text-xs text-gray-500">Day of month:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={recurrenceDayOfMonth}
+                      onChange={e => setRecurrenceDayOfMonth(Number(e.target.value))}
+                      className="ml-2 w-16 p-1 border rounded bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                )}
+                {recurrenceType === 'custom' && (
+                  <div className="mb-2 flex gap-2 items-center">
+                    <label className="text-xs text-gray-500">Every</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={recurrenceInterval}
+                      onChange={e => setRecurrenceInterval(Number(e.target.value))}
+                      className="w-14 p-1 border rounded bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    />
+                    <span className="text-xs text-gray-500">days</span>
+                  </div>
+                )}
+                {recurrenceType !== 'none' && (
+                  <div>
+                    <label className="text-xs text-gray-500">Repeat until:</label>
+                    <input
+                      type="date"
+                      value={recurrenceEndDate.format('YYYY-MM-DD')}
+                      onChange={e => setRecurrenceEndDate(dayjs(e.target.value))}
+                      min={day.format('YYYY-MM-DD')}
+                      className="ml-2 w-32 p-1 border rounded bg-gray-100 dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                )}
             </div>
         </div>
         <footer className="flex justify-between items-center border-t border-gray-200 dark:border-slate-700 p-4 rounded-b-lg">
